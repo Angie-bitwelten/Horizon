@@ -1,0 +1,52 @@
+name: Test OpenAI Connection
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-connection:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.26"
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Check OpenAI through Horizon
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          uv run python - <<'PY'
+          import asyncio
+          import json
+          import os
+          from src.models import AIConfig
+          from src.ai.client import OpenAIClient
+
+          if not os.environ.get("OPENAI_API_KEY"):
+              raise SystemExit("Missing OPENAI_API_KEY. Add it in Settings > Secrets and variables > Actions.")
+          with open("data/config.github.json") as f:
+              config = AIConfig.model_validate(json.load(f)["ai"])
+          async def main():
+              client = OpenAIClient(config)
+              try:
+                  result = await client.complete(
+                      system='Return only the JSON object {"status":"ok"}.',
+                      user="Test the API connection.",
+                      max_tokens=1024,
+                  )
+                  if json.loads(result).get("status") != "ok":
+                      raise SystemExit("API responded, but the JSON check failed.")
+                  print("SUCCESS: Horizon can call the configured OpenAI model.")
+              finally:
+                  await client.client.close()
+          asyncio.run(main())
+          PY
